@@ -44,6 +44,10 @@ const FLIP_DWELL_MS = 400;
 /** Duration of the page slide when a drag flips pages */
 const FLIP_ANIMATION_MS = 300;
 
+/** Duration of a page turn (wheel, dots, keyboard): the same slide as
+ *  the drag flip, given a little more time */
+const TURN_ANIMATION_MS = 500;
+
 /** Gap between wheel events that separates two gestures: a scroll wheel's
  *  notches arrive slower than this, a trackpad's stream and its momentum
  *  tail faster */
@@ -57,6 +61,7 @@ const WHEEL_GAP_MS = 80;
 function animateViewportTo(
   el: HTMLElement,
   targetLeft: number,
+  durationMs: number,
   isCancelled?: () => boolean
 ): Promise<void> {
   return new Promise((resolve) => {
@@ -68,7 +73,7 @@ function animateViewportTo(
         resolve();
         return;
       }
-      const t = Math.min(1, (now - start) / FLIP_ANIMATION_MS);
+      const t = Math.min(1, (now - start) / durationMs);
       const eased = 1 - Math.pow(1 - t, 3);
       el.scrollTo({ left: startLeft + delta * eased, behavior: "instant" });
       if (t < 1) {
@@ -167,7 +172,7 @@ function slideViewportToPage(
 ): void {
   wheel.target = target;
   const id = ++wheel.slideId;
-  void animateViewportTo(el, target * el.clientWidth, () => wheel.slideId !== id).then(() => {
+  void animateViewportTo(el, target * el.clientWidth, TURN_ANIMATION_MS, () => wheel.slideId !== id).then(() => {
     if (wheel.slideId !== id) return;
     wheel.target = null;
     if (el.clientWidth === 0) onHiddenLand(target);
@@ -723,7 +728,7 @@ export function PagedGrid({
       // target engine caches item rects only after the viewport settles.
       const stopFollowing = followGhost(ghost);
       try {
-        await animateViewportTo(viewport, toPage * viewport.clientWidth);
+        await animateViewportTo(viewport, toPage * viewport.clientWidth, FLIP_ANIMATION_MS);
       } finally {
         stopFollowing();
       }
