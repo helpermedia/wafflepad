@@ -23,7 +23,7 @@ const UserCard = React.memo(function UserCard({ user }) {
   );
 });
 
-// ✅ React 19 pattern (let compiler optimize)
+// ✅ React 19 pattern (simple first; memoize only for a measured cost)
 function UserCard({ user }) {
   const fullName = `${user.firstName} ${user.lastName}`;
 

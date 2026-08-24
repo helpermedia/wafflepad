@@ -33,6 +33,8 @@ Wafflepad is a macOS Launchpad alternative built with Tauri, React 19 and TypeSc
 ```
 src/
 ├── components/     # React components
+├── constants/      # Shared constants (grid geometry, drag-and-drop)
+├── contexts/       # React contexts (config)
 ├── hooks/          # Custom React hooks (useApps, useDragGrid, etc.)
 ├── lib/helper-dnd/ # Custom drag-and-drop engine
 ├── types/          # TypeScript type definitions
@@ -65,7 +67,7 @@ bun lint:fix        # Fix ESLint issues
 
 This project uses React 19. Key principles:
 
-- **No over-memoization**: React Compiler handles it — avoid unnecessary `React.memo`, `useMemo`, `useCallback`
+- **Memoization is manual and rare**: the React Compiler is not in the build (plain `@vitejs/plugin-react`, no `babel-plugin-react-compiler`), so a parent render re-renders its whole subtree. Don't add `React.memo`, `useMemo` or `useCallback` speculatively; reserve them for a measured cost. `eslint-plugin-react-hooks` enforces the compiler's rules of React regardless
 - **New hooks**: `use()`, `useOptimistic()`, `useActionState()`, `useFormStatus()`
 - **Actions**: Use `useTransition` or form `action` prop for async mutations
 - **Simplified patterns**: `ref` as prop (no `forwardRef`), `<Context value="">` syntax
