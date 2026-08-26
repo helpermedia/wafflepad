@@ -14,6 +14,7 @@ Wafflepad is a modern, customizable app launcher built with Tauri, React and Typ
 - Type-to-search with ranked, accent-insensitive matches ("cafe" finds "Café"), including apps inside folders
 - Native right-click menu on apps: Open, Show in Finder, Get Info and Quick Look
 - Native right-click menu on folders: Open, Rename and Ungroup, with renaming done right on the tile
+- Select several tiles with Cmd-click, Shift-click, a marquee drag over the background or Cmd+A, then right-click for New Folder with Selection or Move to Folder (a right-button marquee opens that menu as you release); folders in a selection merge into the result
 - Drag-and-drop reordering with macOS Launchpad-style behavior
 - Drags cross pages: hold an app at the edge of the screen and the page flips underneath it
 - Edge auto-scroll while dragging in the scrollable layout
@@ -21,8 +22,8 @@ Wafflepad is a modern, customizable app launcher built with Tauri, React and Typ
 - Seamless drag handoff from folder modal to main grid
 - Drag an app onto the Dock to pin it, like the original Launchpad
 - Progressive icon loading with disk caching
-- Keyboard navigation: Arrow keys move the selection, Enter launches, Escape peels back renames, search, drags and folders before closing
-- Click outside or press Escape to dismiss
+- Keyboard navigation: Arrow keys move the selection, Enter launches, Ctrl+Cmd+N folders a multi-selection, Escape peels back renames, search, drags, folders and selections before closing
+- Click outside or press Escape to dismiss; either releases a selection first
 
 ## Requirements
 

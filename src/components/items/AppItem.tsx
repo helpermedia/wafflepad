@@ -29,7 +29,7 @@ export function AppItem({
   /** Closes the launcher after a context menu action hands off to another app */
   onCloseApp?: () => void;
   isLaunching?: boolean;
-  /** Keyboard-selection highlight */
+  /** Selection highlight: the keyboard cursor or a multi-selection */
   isSelected?: boolean;
   /** Set false to render as a plain launch tile (search results) */
   draggable?: boolean;

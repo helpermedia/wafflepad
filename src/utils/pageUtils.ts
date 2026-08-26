@@ -75,6 +75,12 @@ export function removeFromPages(pages: string[][], id: string): string[][] {
   return pages.map((page) => page.filter((other) => other !== id));
 }
 
+/** Remove ids wherever they occur, in one pass; pages may be left empty */
+export function removeManyFromPages(pages: string[][], ids: Iterable<string>): string[][] {
+  const drop = new Set(ids);
+  return pages.map((page) => page.filter((id) => !drop.has(id)));
+}
+
 /** Append ids to the last page (created when there is none) */
 export function appendToLastPage(pages: string[][], ids: string[]): string[][] {
   if (pages.length === 0) return [[...ids]];

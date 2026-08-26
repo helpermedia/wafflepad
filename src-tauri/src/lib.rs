@@ -113,6 +113,7 @@ pub fn run() {
             dock_drag::start_dock_drag,
             app_menu::show_app_menu,
             app_menu::show_folder_menu,
+            app_menu::show_selection_menu,
             app_menu::show_options_menu,
         ])
         .on_menu_event(|app, event| {

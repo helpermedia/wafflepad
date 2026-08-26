@@ -144,7 +144,7 @@ export function FolderItem({
   onRenameStart: (folder: GridFolder) => void;
   /** Rename finished; newName is null when cancelled or unchanged */
   onRenameEnd: (folder: GridFolder, newName: string | null) => void;
-  /** Keyboard-selection highlight */
+  /** Selection highlight: the keyboard cursor or a multi-selection */
   isSelected?: boolean;
 }) {
   // Outlines the preview while its context menu is open (same as AppItem)

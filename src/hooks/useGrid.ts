@@ -309,5 +309,9 @@ export function useGrid() {
     handleRemoveFromFolder: folderOps.handleRemoveFromFolder,
     handleUngroupFolder: folderOps.handleUngroupFolder,
     getOpenFolderSavedOrder: folderOps.getOpenFolderSavedOrder,
+
+    // Multi-selection actions (see useSelection in the host)
+    handleCreateFolderFrom: folderOps.handleCreateFolderFrom,
+    handleMoveToFolder: folderOps.handleMoveToFolder,
   };
 }

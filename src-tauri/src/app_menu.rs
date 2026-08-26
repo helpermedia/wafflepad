@@ -7,7 +7,16 @@
 //! frontend as an event, keeping every action flow (launch animation,
 //! close-on-handoff, layout switching) in one place there.
 
+use serde::Deserialize;
+
 use crate::AppError;
+
+/// A folder the selection menu offers as a move target
+#[derive(Deserialize)]
+pub(crate) struct FolderOption {
+    pub(crate) id: String,
+    pub(crate) name: String,
+}
 
 /// Show the context menu for an app tile at the current cursor position.
 /// The chosen action is emitted as an "app-menu-action" event. Sync
@@ -43,6 +52,29 @@ pub(crate) fn show_folder_menu(
         let _ = (window, folder_id);
         Err(AppError::Validation(
             "Folder menu is only available on macOS".into(),
+        ))
+    }
+}
+
+/// Show the context menu for a multi-selection of tiles at the current
+/// cursor position: a new folder from the selection, or a move into one
+/// of `folders`. The choice is emitted as a "selection-menu-action"
+/// event. Sync command: main thread, blocks until dismissed, like
+/// show_app_menu.
+#[tauri::command]
+pub(crate) fn show_selection_menu(
+    window: tauri::WebviewWindow,
+    count: usize,
+    folders: Vec<FolderOption>,
+) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    return macos::show_selection(&window, count, &folders);
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, count, folders);
+        Err(AppError::Validation(
+            "Selection menu is only available on macOS".into(),
         ))
     }
 }
@@ -88,6 +120,9 @@ mod macos {
         symbol: Option<&'a str>,
         /// Check-marked (NSControlStateValueOn)
         checked: bool,
+        /// Entries of a submenu this item opens (the item itself then
+        /// never fires)
+        submenu: Option<Vec<ItemSpec<'a>>>,
     }
 
     struct HandlerIvars {
@@ -131,9 +166,51 @@ mod macos {
             const { RefCell::new(None) };
     }
 
+    /// Append `specs` to `menu`, tagging every item in depth-first order
+    /// from `next_tag` (a submenu's parent takes a tag too, though it never
+    /// fires), so each reachable item maps to one index for on_select
+    fn add_items(
+        mtm: MainThreadMarker,
+        menu: &NSMenu,
+        specs: &[ItemSpec],
+        handler: &MenuHandler,
+        next_tag: &mut usize,
+    ) {
+        for spec in specs {
+            let item = NSMenuItem::new(mtm);
+            item.setTitle(&NSString::from_str(spec.title));
+            item.setTag(*next_tag as isize);
+            *next_tag += 1;
+            unsafe {
+                item.setTarget(Some(handler));
+                item.setAction(Some(sel!(menuAction:)));
+            }
+            if let Some(symbol) = spec.symbol {
+                let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                    &NSString::from_str(symbol),
+                    None,
+                );
+                if let Some(image) = image {
+                    item.setImage(Some(&image));
+                }
+            }
+            if spec.checked {
+                item.setState(1); // NSControlStateValueOn
+            }
+            if let Some(entries) = &spec.submenu {
+                let submenu = NSMenu::new(mtm);
+                submenu.setAutoenablesItems(false);
+                add_items(mtm, &submenu, entries, handler, next_tag);
+                item.setSubmenu(Some(&submenu));
+            }
+            menu.addItem(&item);
+        }
+    }
+
     /// Build and show a native menu at the cursor, with an optional dimmed
     /// section header. Blocks until the menu is dismissed; a selection
-    /// reaches on_select as the index into `items`.
+    /// reaches on_select as the depth-first index into `items` (see
+    /// add_items).
     fn popup(
         header: Option<&str>,
         items: &[ItemSpec],
@@ -156,28 +233,8 @@ mod macos {
             menu.addItem(&item);
         }
 
-        for (index, spec) in items.iter().enumerate() {
-            let item = NSMenuItem::new(mtm);
-            item.setTitle(&NSString::from_str(spec.title));
-            item.setTag(index as isize);
-            unsafe {
-                item.setTarget(Some(&handler));
-                item.setAction(Some(sel!(menuAction:)));
-            }
-            if let Some(symbol) = spec.symbol {
-                let image = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-                    &NSString::from_str(symbol),
-                    None,
-                );
-                if let Some(image) = image {
-                    item.setImage(Some(&image));
-                }
-            }
-            if spec.checked {
-                item.setState(1); // NSControlStateValueOn
-            }
-            menu.addItem(&item);
-        }
+        let mut next_tag = 0;
+        add_items(mtm, &menu, items, &handler, &mut next_tag);
 
         ACTIVE_HANDLER.with(|slot| *slot.borrow_mut() = Some(handler));
 
@@ -211,6 +268,7 @@ mod macos {
                 title,
                 symbol: Some(symbol),
                 checked: false,
+                submenu: None,
             })
             .collect();
 
@@ -259,6 +317,7 @@ mod macos {
                 title,
                 symbol: Some(symbol),
                 checked: false,
+                submenu: None,
             })
             .collect();
 
@@ -276,6 +335,73 @@ mod macos {
                         folder_id: folder_id.clone(),
                     },
                 );
+            }),
+        )
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SelectionActionPayload {
+        action: &'static str,
+        folder_id: Option<String>,
+    }
+
+    pub(super) fn show_selection(
+        window: &tauri::WebviewWindow,
+        count: usize,
+        folders: &[super::FolderOption],
+    ) -> Result<(), AppError> {
+        let app = window.app_handle().clone();
+        let new_folder_title = format!("New Folder with Selection ({count} Items)");
+
+        // The items and, in the same depth-first order the tags take, the
+        // payload each one fires (None for the submenu's parent, which
+        // never fires): a lookup, so a reordered menu can't misroute
+        let mut items = Vec::new();
+        let mut actions: Vec<Option<SelectionActionPayload>> = Vec::new();
+
+        items.push(ItemSpec {
+            title: &new_folder_title,
+            symbol: Some("folder.badge.plus"),
+            checked: false,
+            submenu: None,
+        });
+        actions.push(Some(SelectionActionPayload {
+            action: "new-folder",
+            folder_id: None,
+        }));
+
+        if !folders.is_empty() {
+            actions.push(None);
+            let mut targets = Vec::with_capacity(folders.len());
+            for folder in folders {
+                targets.push(ItemSpec {
+                    title: &folder.name,
+                    symbol: Some("folder"),
+                    checked: false,
+                    submenu: None,
+                });
+                actions.push(Some(SelectionActionPayload {
+                    action: "move-to-folder",
+                    folder_id: Some(folder.id.clone()),
+                }));
+            }
+            items.push(ItemSpec {
+                title: "Move to Folder",
+                symbol: Some("folder"),
+                checked: false,
+                submenu: Some(targets),
+            });
+        }
+
+        popup(
+            None,
+            &items,
+            Box::new(move |index| {
+                let Some(Some(payload)) = actions.get(index) else {
+                    return;
+                };
+                let _ = app.emit("selection-menu-action", payload.clone());
             }),
         )
     }
@@ -300,6 +426,7 @@ mod macos {
                 title,
                 symbol: None,
                 checked: *layout == active_layout,
+                submenu: None,
             })
             .collect();
 

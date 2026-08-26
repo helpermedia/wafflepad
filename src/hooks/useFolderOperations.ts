@@ -1,13 +1,18 @@
 import { useState } from "react";
 import type { AppInfo, FolderMetadata } from "@/types/app";
-import { dissolveFolder, removeAppFromFolder, updateFolderById } from "@/utils/folderUtils";
-import { removeFromPages, replaceInPages } from "@/utils/pageUtils";
+import {
+  dissolveFolder,
+  isFolderId,
+  removeAppFromFolder,
+  updateFolderById,
+} from "@/utils/folderUtils";
+import { removeManyFromPages, replaceInPages } from "@/utils/pageUtils";
 import { categoryDisplayName } from "@/utils/appUtils";
 import type { GridFolder } from "@/components/items/FolderItem";
 
 interface UseFolderOperationsOptions {
   folders: FolderMetadata[];
-  setFolders: (folders: FolderMetadata[]) => void;
+  setFolders: React.Dispatch<React.SetStateAction<FolderMetadata[]>>;
   createNewFolder: (appPaths: string[], name?: string) => FolderMetadata;
   appsMap: Map<string, AppInfo>;
   /** Current page structure of the main grid (see pageUtils) */
@@ -51,41 +56,105 @@ export function useFolderOperations({
     setFolders(updatedFolders);
   }
 
-  function handleCreateFolder(sourceAppId: string, targetAppId: string) {
-    // Suggest a name from the apps' App Store category, like Launchpad:
-    // prefer the target's category, fall back to the source's
-    const suggestedName =
-      categoryDisplayName(appsMap.get(targetAppId)?.category) ??
-      categoryDisplayName(appsMap.get(sourceAppId)?.category) ??
-      undefined;
+  /** The name a folder of these apps gets, like Launchpad: the App Store
+   *  category most of them declare (a tie goes to the first), none if no
+   *  app declares one */
+  function suggestFolderName(appIds: string[]): string | undefined {
+    const counts = new Map<string, number>();
+    for (const id of appIds) {
+      const name = categoryDisplayName(appsMap.get(id)?.category);
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    let best: string | undefined;
+    let bestCount = 0;
+    for (const [name, count] of counts) {
+      if (count > bestCount) {
+        best = name;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
 
-    const newFolder = createNewFolder([targetAppId, sourceAppId], suggestedName);
+  /** The apps behind grid ids: an app id is itself, a folder id stands
+   *  for its apps (the folder merges into the operation's target) */
+  function appsBehind(ids: string[]): { appIds: string[]; folderIds: string[] } {
+    const appIds: string[] = [];
+    const folderIds: string[] = [];
+    for (const id of ids) {
+      const folder = isFolderId(id) ? folders.find((f) => f.id === id) : undefined;
+      if (folder) {
+        folderIds.push(id);
+        appIds.push(...folder.appPaths);
+      } else {
+        appIds.push(id);
+      }
+    }
+    return { appIds: [...new Set(appIds)], folderIds };
+  }
+
+  /**
+   * Fold grid items into a new folder: apps join it, folders among them
+   * merge into it. The folder takes the anchor's slot (a drop's target,
+   * or the tile a selection's menu was shown on) and the others leave
+   * their pages. Opens the folder with its name in edit mode, like
+   * Launchpad.
+   */
+  function handleCreateFolderFrom(ids: string[], anchorId: string) {
+    const { appIds, folderIds } = appsBehind(ids);
+    if (appIds.length === 0) return;
+
+    const newFolder = createNewFolder(appIds, suggestFolderName(appIds));
+    if (folderIds.length > 0) {
+      const merged = new Set(folderIds);
+      setFolders((prev) => prev.filter((f) => !merged.has(f.id)));
+    }
 
     // Open modal in rename mode
     setNewFolderId(newFolder.id);
     setOpenFolderId(newFolder.id);
 
-    // The folder takes the target's slot; the source leaves its page
-    const newPages = replaceInPages(removeFromPages(pages, sourceAppId), targetAppId, [
-      newFolder.id,
-    ]);
-    setPages(newPages);
+    const leavers = ids.filter((id) => id !== anchorId);
+    setPages(replaceInPages(removeManyFromPages(pages, leavers), anchorId, [newFolder.id]));
   }
 
-  function handleAddToFolder(folderId: string, appId: string) {
-    const existingFolder = folders.find((f) => f.id === folderId);
-    if (!existingFolder) return;
+  /** Drag-and-drop folder creation: the dragged app joins the target's
+   *  slot, and the target's category names the folder before its own */
+  function handleCreateFolder(sourceAppId: string, targetAppId: string) {
+    handleCreateFolderFrom([targetAppId, sourceAppId], targetAppId);
+  }
 
-    // Add app to folder
-    const updatedAppPaths = [...existingFolder.appPaths, appId];
-    const updatedFolders = updateFolderById(folders, folderId, { appPaths: updatedAppPaths });
+  /**
+   * Move grid items into an existing folder: apps join it, folders among
+   * them merge into it, and all of them leave their pages. Opens the
+   * folder, as a drop into it does.
+   */
+  function handleMoveToFolder(folderId: string, ids: string[]) {
+    if (!folders.some((f) => f.id === folderId)) return;
+    // The target is never a source: it must neither merge into itself nor
+    // leave its page
+    const sources = ids.filter((id) => id !== folderId);
+    const { appIds, folderIds } = appsBehind(sources);
+    if (appIds.length === 0) return;
+
+    const merged = new Set(folderIds);
+    setFolders((prev) =>
+      prev
+        .filter((f) => !merged.has(f.id))
+        .map((f) =>
+          f.id === folderId ? { ...f, appPaths: [...new Set([...f.appPaths, ...appIds])] } : f
+        )
+    );
 
     // Open folder modal
     setOpenFolderId(folderId);
 
-    setFolders(updatedFolders);
-    // The app leaves its page
-    setPages(removeFromPages(pages, appId));
+    setPages(removeManyFromPages(pages, sources));
+  }
+
+  /** Drag-and-drop into a folder tile: the dragged app joins it */
+  function handleAddToFolder(folderId: string, appId: string) {
+    handleMoveToFolder(folderId, [appId]);
   }
 
   function handleRemoveFromFolder(appId: string) {
@@ -132,7 +201,9 @@ export function useFolderOperations({
     handleFolderOrderChange,
     handleRemoveFromFolder,
     handleCreateFolder,
+    handleCreateFolderFrom,
     handleAddToFolder,
+    handleMoveToFolder,
     handleUngroupFolder,
     getOpenFolderSavedOrder,
   };

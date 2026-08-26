@@ -189,6 +189,8 @@ function cancelWheelGesture(wheel: WheelState): void {
 interface PagedGridProps {
   items: GridItemUnion[];
   selectedId: string | null;
+  /** Multi-selection highlight (see useSelection) */
+  selectedIds: ReadonlySet<string>;
   launchingPath: string | null;
   /** Kept mounted while true (search open, folder open) so the page
    *  position survives; display:none resets scrollLeft without an event */
@@ -233,6 +235,7 @@ interface PageProps {
    *  the handoff coordinator, so a folder drag-out targets it */
   isCurrent: boolean;
   selectedId: string | null;
+  selectedIds: ReadonlySet<string>;
   launchingPath: string | null;
   onLaunch: (path: string) => void;
   onCloseApp: () => void;
@@ -269,6 +272,7 @@ function Page({
   pageIndex,
   isCurrent,
   selectedId,
+  selectedIds,
   launchingPath,
   onLaunch,
   onCloseApp,
@@ -382,7 +386,7 @@ function Page({
             isDragActive={activeId !== null}
             isDragging={activeId === item.data.id || pendingDragId === item.data.id}
             dropAction={dropAction}
-            isSelected={selectedId === item.data.id}
+            isSelected={selectedId === item.data.id || selectedIds.has(item.data.id)}
             onLaunch={onLaunch}
             onCloseApp={onCloseApp}
             isLaunching={launchingPath === item.data.path}
@@ -394,7 +398,7 @@ function Page({
             isDragActive={activeId !== null}
             isDragging={activeId === item.data.id || pendingDragId === item.data.id}
             dropAction={dropAction}
-            isSelected={selectedId === item.data.id}
+            isSelected={selectedId === item.data.id || selectedIds.has(item.data.id)}
             onOpen={onOpenFolder}
             onUngroup={onUngroupFolder}
             isRenaming={renamingFolderId === item.data.id}
@@ -422,6 +426,7 @@ function Page({
 export function PagedGrid({
   items,
   selectedId,
+  selectedIds,
   launchingPath,
   hidden,
   onLaunch,
@@ -853,6 +858,7 @@ export function PagedGrid({
               // the page count and no page would register for drag-out
               isCurrent={index === Math.min(page, pages.length - 1)}
               selectedId={selectedId}
+              selectedIds={selectedIds}
               launchingPath={launchingPath}
               onLaunch={onLaunch}
               onCloseApp={onCloseApp}
