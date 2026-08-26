@@ -7,7 +7,7 @@ import {
   updateFolderById,
 } from "@/utils/folderUtils";
 import { removeManyFromPages, replaceInPages } from "@/utils/pageUtils";
-import { categoryDisplayName } from "@/utils/appUtils";
+import { categoryDisplayName, sharedNamePrefix } from "@/utils/appUtils";
 import type { GridFolder } from "@/components/items/FolderItem";
 
 interface UseFolderOperationsOptions {
@@ -56,24 +56,30 @@ export function useFolderOperations({
     setFolders(updatedFolders);
   }
 
-  /** The name a folder of these apps gets, like Launchpad: the App Store
-   *  category most of them declare (a tie goes to the first), none if no
-   *  app declares one */
+  /** The name a folder of these apps gets: the App Store category at
+   *  least half of them declare (a tie goes to the first), like Launchpad;
+   *  failing that, the name they share ("Microsoft" for Word and Excel,
+   *  see sharedNamePrefix); failing that, the category any of them
+   *  declares, a guess beating "Untitled" with the name about to be
+   *  edited; none if nothing applies */
   function suggestFolderName(appIds: string[]): string | undefined {
     const counts = new Map<string, number>();
     for (const id of appIds) {
       const name = categoryDisplayName(appsMap.get(id)?.category);
       if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
-    let best: string | undefined;
-    let bestCount = 0;
+    let plurality: string | undefined;
+    let pluralityCount = 0;
     for (const [name, count] of counts) {
-      if (count > bestCount) {
-        best = name;
-        bestCount = count;
+      if (count > pluralityCount) {
+        plurality = name;
+        pluralityCount = count;
       }
     }
-    return best;
+    if (plurality && pluralityCount >= Math.ceil(appIds.length / 2)) return plurality;
+
+    const names = appIds.flatMap((id) => appsMap.get(id)?.name ?? []);
+    return sharedNamePrefix(names) ?? plurality;
   }
 
   /** The apps behind grid ids: an app id is itself, a folder id stands
