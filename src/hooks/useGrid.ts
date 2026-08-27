@@ -225,6 +225,7 @@ export function useGrid() {
     setFolders,
     createNewFolder,
     appsMap: gridData.appsMap,
+    physicalFolders,
     pages,
     setPages,
   });

@@ -18,7 +18,7 @@ Wafflepad is a modern, customizable app launcher built with Tauri, React and Typ
 - Drag-and-drop reordering with macOS Launchpad-style behavior
 - Drags cross pages: hold an app at the edge of the screen and the page flips underneath it
 - Edge auto-scroll while dragging in the scrollable layout
-- Folder support: drag apps together to create, drag out to remove; a new folder is named after the apps' App Store category like Launchpad, or failing that after the name they share ("Microsoft" for Word and Excel)
+- Folder support: drag apps together to create, drag out to remove. A new folder takes the name of the folder on disk its apps all come from, or their App Store category like Launchpad, or the name they share ("Microsoft" for Word and Excel)
 - Seamless drag handoff from folder modal to main grid
 - Drag an app onto the Dock to pin it, like the original Launchpad
 - Progressive icon loading with disk caching

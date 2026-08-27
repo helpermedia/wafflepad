@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AppInfo, FolderMetadata } from "@/types/app";
+import type { AppInfo, FolderInfo, FolderMetadata } from "@/types/app";
 import {
   dissolveFolder,
   isFolderId,
@@ -15,6 +15,8 @@ interface UseFolderOperationsOptions {
   setFolders: React.Dispatch<React.SetStateAction<FolderMetadata[]>>;
   createNewFolder: (appPaths: string[], name?: string) => FolderMetadata;
   appsMap: Map<string, AppInfo>;
+  /** The folders on disk discovery found apps in, for naming */
+  physicalFolders: FolderInfo[];
   /** Current page structure of the main grid (see pageUtils) */
   pages: string[][];
   /** Make a page structure current (persisted by useGrid) */
@@ -26,6 +28,7 @@ export function useFolderOperations({
   setFolders,
   createNewFolder,
   appsMap,
+  physicalFolders,
   pages,
   setPages,
 }: UseFolderOperationsOptions) {
@@ -56,13 +59,22 @@ export function useFolderOperations({
     setFolders(updatedFolders);
   }
 
-  /** The name a folder of these apps gets: the App Store category at
-   *  least half of them declare (a tie goes to the first), like Launchpad;
-   *  failing that, the name they share ("Microsoft" for Word and Excel,
-   *  see sharedNamePrefix); failing that, the category any of them
-   *  declares, a guess beating "Untitled" with the name about to be
-   *  edited; none if nothing applies */
+  /** The name a folder of these apps gets: the folder on disk they all
+   *  come from, whoever put them there having grouped them on purpose;
+   *  else the App Store category at least half of them declare (a tie
+   *  goes to the first), like Launchpad; else the name they share
+   *  ("Microsoft" for Word and Excel, see sharedNamePrefix); else the
+   *  category any of them declares, a guess beating "Untitled" with the
+   *  name about to be edited; none if nothing applies */
   function suggestFolderName(appIds: string[]): string | undefined {
+    // Built here, once per folder created, rather than on every render
+    const physicalFolderNames = new Map(
+      physicalFolders.flatMap((folder) => folder.apps.map((app) => [app.path, folder.name]))
+    );
+    const fromDisk = appIds.map((id) => physicalFolderNames.get(id));
+    const diskFolder = fromDisk[0];
+    if (diskFolder && fromDisk.every((name) => name === diskFolder)) return diskFolder;
+
     const counts = new Map<string, number>();
     for (const id of appIds) {
       const name = categoryDisplayName(appsMap.get(id)?.category);
