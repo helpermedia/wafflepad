@@ -21,7 +21,7 @@ const PREVIEW_TIERS = [
   { capacity: 16, classes: "grid-cols-4 grid-rows-4" },
 ];
 
-export function FolderPreview({ apps }: { apps: AppInfo[] }) {
+export function FolderPreview({ apps, tinted = false }: { apps: AppInfo[]; tinted?: boolean }) {
   // Density follows the folder size; anything past the largest tier's
   // capacity isn't represented
   const tier =
@@ -32,23 +32,33 @@ export function FolderPreview({ apps }: { apps: AppInfo[] }) {
   return (
     <div
       className={cn(
-        "w-24 h-24 bg-white/20 rounded-2xl p-2 grid gap-1 border border-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]",
+        "relative w-24 h-24 bg-white/20 rounded-2xl p-2 grid gap-1 border border-white/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]",
         tier.classes
       )}
     >
+      {tinted && (
+        // A targeted folder shows its selection on the box itself, a wash of
+        // the accent color under the mini icons (positioned, so they paint
+        // above it). Left out of drag ghosts, a ghost being the item
+        // moving, not a targeted one.
+        <div
+          data-ghost-exclude
+          className="absolute inset-0 rounded-2xl bg-accent opacity-30 pointer-events-none"
+        />
+      )}
       {previewApps.map((app) =>
         app.icon ? (
           <img
             key={app.path}
             src={getIconSrc(app.icon)}
             alt={app.name}
-            className="w-full h-full object-contain rounded-md"
+            className="relative w-full h-full object-contain rounded-md"
             draggable={false}
           />
         ) : (
           // Soft placeholder cell while (or if) the icon never generates —
           // the full-size skeleton SVG is near-invisible at mini scale
-          <div key={app.path} className="w-full h-full rounded-md bg-white/15" />
+          <div key={app.path} className="relative w-full h-full rounded-md bg-white/15" />
         )
       )}
     </div>
@@ -144,11 +154,18 @@ export function FolderItem({
   onRenameStart: (folder: GridFolder) => void;
   /** Rename finished; newName is null when cancelled or unchanged */
   onRenameEnd: (folder: GridFolder, newName: string | null) => void;
-  /** Selection highlight: the keyboard cursor or a multi-selection */
+  /** Targeted by the keyboard cursor or a multi-selection: shown like
+   *  an open context menu's tile */
   isSelected?: boolean;
 }) {
-  // Outlines the preview while its context menu is open (same as AppItem)
+  // Marks the tile while its context menu is open (same as AppItem)
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Targeted (the keyboard cursor, a multi-selection, an open context
+  // menu): the preview box tints with the accent color and the name goes
+  // on the accent pill (an app tile gets a well behind its icon instead,
+  // see AppItem)
+  const targeted = isMenuOpen || isSelected;
 
   const handleClick = () => {
     // Only open if no drag is in progress (same guard as AppItem)
@@ -185,24 +202,17 @@ export function FolderItem({
         // Transition for smooth shifting during drag
         isDragActive && "transition-transform duration-200",
         // Hide original when being dragged (ghost is visible instead)
-        isDragging && "opacity-0 pointer-events-none",
-        isSelected && "bg-white/15"
+        isDragging && "opacity-0 pointer-events-none"
       )}
     >
       <div className="relative" data-drag-handle onClick={handleClick}>
         <DropTarget action={dropAction ?? null} />
-        {isMenuOpen && (
-          // Unlike an app icon's PNG (transparent margins, see AppItem),
-          // the folder's visible squircle is the preview box itself, so the
-          // ring hugs its exact bounds and corner radius
-          <div className="absolute inset-0 rounded-2xl ring-3 ring-accent pointer-events-none" />
-        )}
-        <FolderPreview apps={item.apps} />
+        <FolderPreview apps={item.apps} tinted={targeted} />
       </div>
       {isRenaming ? (
         <RenameInput name={item.name} onDone={(newName) => onRenameEnd(item, newName)} />
       ) : (
-        <Label>{item.name}</Label>
+        <Label highlighted={targeted}>{item.name}</Label>
       )}
     </Container>
   );

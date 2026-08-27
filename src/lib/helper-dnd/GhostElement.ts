@@ -73,6 +73,10 @@ export class GhostElement {
     // Remove data-draggable to prevent the ghost from being detected as a drag target
     this.element.removeAttribute("data-draggable");
 
+    // Drop what the source marks as not belonging on a ghost (a selection
+    // or focus ring: the ghost is the moving item, not a targeted one)
+    this.element.querySelectorAll("[data-ghost-exclude]").forEach((el) => el.remove());
+
     document.body.appendChild(this.element);
   }
 

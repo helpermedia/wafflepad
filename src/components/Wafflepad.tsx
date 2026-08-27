@@ -104,6 +104,9 @@ export function Wafflepad() {
       : null;
 
   function onRenameStart(folder: GridFolder) {
+    // A selection has no meaning during a rename, and its ring on the
+    // folder would double the input's own
+    selection.clear();
     setRenameTargetId(folder.id);
   }
 

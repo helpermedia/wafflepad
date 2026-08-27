@@ -31,6 +31,8 @@ Add `data-draggable` to sortable items and `data-drag-handle` to the drag handle
 </div>
 ```
 
+The drag ghost is a clone of the item. Mark anything that should not travel with it (a selection or focus ring, for instance) with `data-ghost-exclude`, and the clone drops it.
+
 ### Basic Usage
 
 ```typescript

@@ -29,14 +29,20 @@ export function AppItem({
   /** Closes the launcher after a context menu action hands off to another app */
   onCloseApp?: () => void;
   isLaunching?: boolean;
-  /** Selection highlight: the keyboard cursor or a multi-selection */
+  /** Targeted by the keyboard cursor or a multi-selection: shown like
+   *  an open context menu's tile */
   isSelected?: boolean;
   /** Set false to render as a plain launch tile (search results) */
   draggable?: boolean;
 }) {
-  // Outlines the icon while its context menu is open (like the Apps app);
-  // popup() resolves when the menu closes, either by action or dismissal
+  // Marks the tile while its context menu is open; popup() resolves when
+  // the menu closes, either by action or dismissal
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Targeted (the keyboard cursor, a multi-selection, an open context
+  // menu): Finder's selection look, a translucent well behind the icon
+  // and the name on an accent pill
+  const targeted = isMenuOpen || isSelected;
 
   function handleClick() {
     // Only launch if not currently dragging
@@ -72,23 +78,28 @@ export function AppItem({
         // Hide original when being dragged (ghost is visible instead)
         isDragging && "opacity-0 pointer-events-none",
         // Grow animation when launching
-        isLaunching && "animate-launch-grow",
-        isSelected && "bg-white/15"
+        isLaunching && "animate-launch-grow"
       )}
     >
       <div className="relative" data-drag-handle>
         <DropTarget action={dropAction ?? null} />
-        {isMenuOpen && (
-          // The ring draws outward from this box, wrapping the icon's visible
-          // squircle with no gap (like the Apps app). Geometry measured from
-          // the cached icon PNGs: 256px canvas, 24px transparent margin, ~55px
-          // corner, which at the 96px render is a 9px inset and 20px radius.
-          // accent = the user's system accent color
-          <div className="absolute inset-2.25 rounded-[20px] ring-3 ring-accent pointer-events-none" />
+        {targeted && (
+          // Behind the icon (earlier in the DOM), 8px outside its visible
+          // squircle, like Finder's: the icon PNGs inset that squircle 9px
+          // in the 96px box (256px canvas, 24px transparent margin), so the
+          // well sits 1px inside the box. The backdrop is as light or dark
+          // as the wallpaper behind the blur, so the translucent white fill
+          // (which carries dark wallpapers) gets a faint dark hairline that
+          // carries light ones and vanishes on dark. Left out of drag
+          // ghosts, a ghost being the item moving, not a targeted one.
+          <div
+            data-ghost-exclude
+            className="absolute inset-px rounded-2xl bg-white/15 ring-1 ring-black/20 pointer-events-none"
+          />
         )}
         <Icon icon={item.icon} alt={item.name} />
       </div>
-      <Label>{item.name}</Label>
+      <Label highlighted={targeted}>{item.name}</Label>
     </Container>
   );
 }
