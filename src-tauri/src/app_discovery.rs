@@ -1,5 +1,6 @@
 use std::fs;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn get_applications_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![
@@ -109,13 +110,39 @@ fn is_own_bundle(
     }
 }
 
+/// What a scan of the Applications directories found
+pub(crate) struct Discovery {
+    pub(crate) apps: Vec<PathBuf>,
+    /// Subdirectories holding two or more apps, with those apps
+    pub(crate) folders: Vec<(PathBuf, Vec<PathBuf>)>,
+    /// Directories that exist but could not be read this time. Apps the
+    /// saved arrangement places under them are unverified rather than
+    /// gone, and the frontend's healing keeps them (see healFolders).
+    pub(crate) unreadable: Vec<PathBuf>,
+}
+
+/// Read a directory's entries. A directory that no longer exists is
+/// simply absent; any other failure is recorded in `unreadable`.
+fn read_dir_or_record(dir: &Path, unreadable: &mut Vec<PathBuf>) -> Option<fs::ReadDir> {
+    match fs::read_dir(dir) {
+        Ok(entries) => Some(entries),
+        Err(e) => {
+            if e.kind() != io::ErrorKind::NotFound {
+                unreadable.push(dir.to_path_buf());
+            }
+            None
+        }
+    }
+}
+
 fn get_apps_in_dir(
     dir: &PathBuf,
     own_bundle_id: &str,
-    own_app_path: Option<&std::path::Path>,
+    own_app_path: Option<&Path>,
+    unreadable: &mut Vec<PathBuf>,
 ) -> Vec<PathBuf> {
     let mut apps = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
+    if let Some(entries) = read_dir_or_record(dir, unreadable) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "app")
@@ -129,16 +156,15 @@ fn get_apps_in_dir(
     apps
 }
 
-pub(crate) fn discover_apps_and_folders(
-    own_bundle_id: &str,
-) -> (Vec<PathBuf>, Vec<(PathBuf, Vec<PathBuf>)>) {
+pub(crate) fn discover_apps_and_folders(own_bundle_id: &str) -> Discovery {
     let mut apps = Vec::new();
     let mut folders: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+    let mut unreadable = Vec::new();
     let own_app = own_bundle_path();
     let own_app_path = own_app.as_deref();
 
     for dir in get_applications_dirs() {
-        if let Ok(entries) = fs::read_dir(&dir) {
+        if let Some(entries) = read_dir_or_record(&dir, &mut unreadable) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|ext| ext == "app") {
@@ -147,7 +173,8 @@ pub(crate) fn discover_apps_and_folders(
                     }
                 } else if path.is_dir() {
                     // Check for apps in subdirectory (1 level deep)
-                    let sub_apps = get_apps_in_dir(&path, own_bundle_id, own_app_path);
+                    let sub_apps =
+                        get_apps_in_dir(&path, own_bundle_id, own_app_path, &mut unreadable);
                     if sub_apps.len() >= 2 {
                         // Only create folder if 2+ apps
                         folders.push((path, sub_apps));
@@ -175,5 +202,9 @@ pub(crate) fn discover_apps_and_folders(
             )
     });
 
-    (apps, folders)
+    Discovery {
+        apps,
+        folders,
+        unreadable,
+    }
 }

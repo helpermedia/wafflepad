@@ -6,6 +6,7 @@ import { getAppsPromise } from "@/lib/appsApi";
 interface UseAppsResult {
   apps: AppInfo[];
   folders: FolderInfo[];
+  unreadableDirs: string[];
 }
 
 export function useApps(): UseAppsResult {
@@ -79,5 +80,5 @@ export function useApps(): UseAppsResult {
     };
   }, [initialData]);
 
-  return { apps, folders };
+  return { apps, folders, unreadableDirs: initialData.unreadableDirs };
 }

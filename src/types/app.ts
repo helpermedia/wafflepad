@@ -22,6 +22,9 @@ export interface FolderMetadata {
 export interface AppsResponse {
   apps: AppInfo[];
   folders: FolderInfo[];
+  /** Directories that exist but failed to read in this scan: apps under
+   *  them are unverified, not gone (see healFolders) */
+  unreadableDirs: string[];
 }
 
 export interface OrderConfig {

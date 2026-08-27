@@ -6,7 +6,12 @@ import { useFolderCreation } from "@/hooks/useFolderCreation";
 import { useConfig, useDndSettings } from "@/hooks/useConfig";
 import { useGridData } from "@/hooks/useGridData";
 import { useFolderOperations } from "@/hooks/useFolderOperations";
-import { resolveFolderApps } from "@/utils/folderUtils";
+import {
+  NO_RETAINED_FOLDER_APPS,
+  resolveFolderApps,
+  withRetainedFolderApps,
+  type RetainedFolderApps,
+} from "@/utils/folderUtils";
 import {
   compactPages,
   flattenPages,
@@ -37,7 +42,7 @@ export interface PageDragHandlers {
 }
 
 export function useGrid() {
-  const { apps, folders: physicalFolders } = useApps();
+  const { apps, folders: physicalFolders, unreadableDirs } = useApps();
   const { orderConfig, saveOrder, layout } = useConfig();
 
   // Folders management — seeded from config by useGridData's init pass,
@@ -64,6 +69,11 @@ export function useGrid() {
   // shows (see pageUtils). Pages are derived from both every render, so
   // the two can never disagree.
   const [pageSizes, setPageSizes] = useState<number[]>([]);
+
+  // Folder apps this launch's scan could not verify (a directory that
+  // failed to read): kept out of the live folders, put back at save time
+  const [retainedFolderApps, setRetainedFolderApps] =
+    useState<RetainedFolderApps>(NO_RETAINED_FOLDER_APPS);
 
   // Drag behavior shared by the main grid and the paged layout's page
   // engines. Everything here is id-based and reads its collaborators
@@ -186,18 +196,20 @@ export function useGrid() {
     }
     if (last.folders === folders && pagesEqual(last.pages, pages)) return;
     lastSavedRef.current = { pages, folders };
-    saveOrder(pages, folders);
-  }, [pages, folders, dragGrid.order, saveOrder]);
+    saveOrder(pages, withRetainedFolderApps(folders, retainedFolderApps));
+  }, [pages, folders, dragGrid.order, saveOrder, retainedFolderApps]);
 
   // Item building & order initialization
   const gridData = useGridData({
     apps,
     physicalFolders,
+    unreadableDirs,
     folders,
     orderConfig,
     order: dragGrid.order,
     setPages,
     setFolders,
+    setRetainedFolderApps,
     activeId: dragGrid.activeId,
   });
 

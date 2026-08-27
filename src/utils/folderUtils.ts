@@ -52,20 +52,71 @@ export function resolveOrderToAppItems(
     .filter((item): item is AppInfo & { id: string } => item !== null);
 }
 
+/** Folder apps a scan could not verify, kept aside for the save (see
+ *  healFolders): by folder id for folders that stay live, whole for
+ *  folders that had nothing else */
+export interface RetainedFolderApps {
+  byFolder: Map<string, string[]>;
+  wholeFolders: FolderMetadata[];
+}
+
+export const NO_RETAINED_FOLDER_APPS: RetainedFolderApps = {
+  byFolder: new Map(),
+  wholeFolders: [],
+};
+
 /**
  * Drop apps that no longer exist on disk from folder contents, and drop
  * folders left with no apps at all. Heals configs referencing uninstalled
  * apps: phantom entries would otherwise desync FolderModal reorders (DOM
  * indices vs order array) and an all-apps-gone folder would render as a
- * permanent empty tile that can never be dissolved.
+ * permanent empty tile that can never be dissolved. An app under a
+ * directory the scan could not read is unverified rather than gone: it
+ * leaves the live folders all the same, but is retained for the save to
+ * put back (withRetainedFolderApps), so a failed scan cannot silently
+ * unfold it.
  */
 export function healFolders(
   folders: FolderMetadata[],
-  knownAppPaths: ReadonlySet<string>
+  knownAppPaths: ReadonlySet<string>,
+  unreadableDirs: readonly string[] = []
+): { folders: FolderMetadata[]; retained: RetainedFolderApps } {
+  const prefixes = unreadableDirs.map((dir) => (dir.endsWith("/") ? dir : `${dir}/`));
+  const unverified = (path: string) => prefixes.some((prefix) => path.startsWith(prefix));
+  const live: FolderMetadata[] = [];
+  const retained: RetainedFolderApps = { byFolder: new Map(), wholeFolders: [] };
+  for (const folder of folders) {
+    const known = folder.appPaths.filter((p) => knownAppPaths.has(p));
+    const kept = folder.appPaths.filter((p) => !knownAppPaths.has(p) && unverified(p));
+    if (known.length > 0) {
+      live.push({ ...folder, appPaths: known });
+      if (kept.length > 0) retained.byFolder.set(folder.id, kept);
+    } else if (kept.length > 0) {
+      retained.wholeFolders.push({ ...folder, appPaths: kept });
+    }
+  }
+  return { folders: live, retained };
+}
+
+/**
+ * The folders as they should be saved: what the session holds, plus what
+ * a failed scan left unverified (see healFolders). A retained folder the
+ * session dissolved stays dissolved; its unverified apps come back loose
+ * on the next complete scan, as newly discovered apps do.
+ */
+export function withRetainedFolderApps(
+  folders: FolderMetadata[],
+  retained: RetainedFolderApps
 ): FolderMetadata[] {
-  return folders
-    .map((f) => ({ ...f, appPaths: f.appPaths.filter((p) => knownAppPaths.has(p)) }))
-    .filter((f) => f.appPaths.length > 0);
+  if (retained.byFolder.size === 0 && retained.wholeFolders.length === 0) return folders;
+  const liveIds = new Set(folders.map((f) => f.id));
+  const merged = folders.map((f) => {
+    const kept = retained.byFolder.get(f.id);
+    if (!kept) return f;
+    const present = new Set(f.appPaths);
+    return { ...f, appPaths: [...f.appPaths, ...kept.filter((p) => !present.has(p))] };
+  });
+  return [...merged, ...retained.wholeFolders.filter((f) => !liveIds.has(f.id))];
 }
 
 /**

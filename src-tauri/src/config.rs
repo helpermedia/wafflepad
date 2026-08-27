@@ -25,6 +25,10 @@ pub struct FolderInfo {
 pub struct AppsResponse {
     pub apps: Vec<AppInfo>,
     pub folders: Vec<FolderInfo>,
+    /// Directories that exist but failed to read in this scan (see
+    /// app_discovery::Discovery)
+    #[serde(rename = "unreadableDirs")]
+    pub unreadable_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

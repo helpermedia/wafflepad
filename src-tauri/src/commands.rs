@@ -2,7 +2,9 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use crate::app_discovery::{app_category, discover_apps_and_folders, get_applications_dirs};
+use crate::app_discovery::{
+    app_category, discover_apps_and_folders, get_applications_dirs, Discovery,
+};
 use crate::config::{
     get_config_path, AppConfig, AppInfo, AppsResponse, FolderInfo, FolderMetadata, LayoutMode,
     OrderConfig, CONFIG_STATE, CONFIG_VERSION,
@@ -132,7 +134,11 @@ fn app_info_from_path(path: &std::path::Path) -> Option<AppInfo> {
 /// Get all apps and folders - loads icons in parallel for speed
 #[tauri::command]
 pub(crate) async fn get_apps(app: tauri::AppHandle) -> Result<AppsResponse, AppError> {
-    let (app_paths, folder_data) = discover_apps_and_folders(&app.config().identifier);
+    let Discovery {
+        apps: app_paths,
+        folders: folder_data,
+        unreadable,
+    } = discover_apps_and_folders(&app.config().identifier);
 
     // Load app icons in parallel
     let mut apps: Vec<AppInfo> = app_paths
@@ -183,7 +189,14 @@ pub(crate) async fn get_apps(app: tauri::AppHandle) -> Result<AppsResponse, AppE
         .collect();
     std::thread::spawn(move || cleanup_orphaned_icons(&all_app_paths));
 
-    Ok(AppsResponse { apps, folders })
+    Ok(AppsResponse {
+        apps,
+        folders,
+        unreadable_dirs: unreadable
+            .iter()
+            .map(|dir| dir.to_string_lossy().to_string())
+            .collect(),
+    })
 }
 
 /// Validate that a path is an .app bundle inside an allowed applications

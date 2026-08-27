@@ -1,6 +1,14 @@
 import type { AppInfo, FolderInfo, FolderMetadata, OrderConfig } from "@/types/app";
 import { buildAppsMap } from "@/utils/appUtils";
-import { isFolderId, resolveFolderApps, resolveOrderToAppItems, convertPhysicalFolders, buildInitialPages, healFolders } from "@/utils/folderUtils";
+import {
+  isFolderId,
+  resolveFolderApps,
+  resolveOrderToAppItems,
+  convertPhysicalFolders,
+  buildInitialPages,
+  healFolders,
+  type RetainedFolderApps,
+} from "@/utils/folderUtils";
 import type { GridItem } from "@/components/items/AppItem";
 import type { GridFolder } from "@/components/items/FolderItem";
 
@@ -11,23 +19,29 @@ export type GridItemUnion =
 interface UseGridDataOptions {
   apps: AppInfo[];
   physicalFolders: FolderInfo[];
+  /** Directories this launch's scan could not read (see healFolders) */
+  unreadableDirs: string[];
   folders: FolderMetadata[];
   orderConfig: OrderConfig | null;
   order: string[] | null;
   /** Seeds the page structure (and with it the flat order) once */
   setPages: (pages: string[][]) => void;
   setFolders: (folders: FolderMetadata[]) => void;
+  /** Receives what the seed's healing left unverified, for the save */
+  setRetainedFolderApps: (retained: RetainedFolderApps) => void;
   activeId: string | null;
 }
 
 export function useGridData({
   apps,
   physicalFolders,
+  unreadableDirs,
   folders,
   orderConfig,
   order,
   setPages,
   setFolders,
+  setRetainedFolderApps,
   activeId,
 }: UseGridDataOptions) {
   // Create apps map for resolving folder apps
@@ -74,13 +88,20 @@ export function useGridData({
 
   // Initialize order once apps/folders load
   if (order === null && (apps.length > 0 || physicalFolders.length > 0)) {
-    // Check if we have saved folders or need to convert physical folders,
-    // then heal them: drop uninstalled apps and folders left empty
-    const savedFolders = orderConfig?.folders ?? [];
-    const effectiveFolders = healFolders(
-      savedFolders.length > 0 ? savedFolders : convertPhysicalFolders(physicalFolders),
-      new Set(appsMap.keys())
+    // A saved arrangement brings its own folders, even none: only a first
+    // launch (no arrangement at all) seeds folders from the physical ones,
+    // or a user who ungrouped their last folder would get it back on the
+    // next launch. Then heal them: drop uninstalled apps and folders left
+    // empty, keeping aside what a directory that failed to read leaves
+    // unverified, so the save can put it back.
+    const { folders: effectiveFolders, retained } = healFolders(
+      orderConfig ? orderConfig.folders : convertPhysicalFolders(physicalFolders),
+      new Set(appsMap.keys()),
+      unreadableDirs
     );
+    if (retained.byFolder.size > 0 || retained.wholeFolders.length > 0) {
+      setRetainedFolderApps(retained);
+    }
 
     // Seed local folder state — from here on it is the single source of
     // truth (mutations append/update it, so it must start complete)
@@ -89,11 +110,15 @@ export function useGridData({
     }
 
     // Build pages from saved config (healing stale/duplicate/folder-contained
-    // entries) or from scratch on first launch — same reconciliation either way
+    // entries) or from scratch on first launch — same reconciliation either
+    // way. Every known app counts, including those discovered inside a
+    // physical subfolder: on a first launch their converted folder contains
+    // them, but once ungrouped they are loose on the saved pages, and a
+    // reseed that only knew the top-level apps dropped them from the grid.
     setPages(
       buildInitialPages(
         orderConfig?.pages ?? [],
-        apps.map((a) => a.path),
+        [...appsMap.keys()],
         effectiveFolders
       )
     );
