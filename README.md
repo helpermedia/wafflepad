@@ -7,7 +7,7 @@ Wafflepad is a modern, customizable app launcher built with Tauri, React and Typ
 ## Features
 
 - Full-screen app launcher with vibrancy blur effect
-- Finds apps in /Applications, /System/Applications and ~/Applications
+- Finds apps in /Applications, /System/Applications and ~/Applications; on first launch, a subfolder like Utilities starts out as a folder in the grid
 - Paged layout like the original Launchpad: turn pages with a scroll wheel flick, a trackpad swipe, the page dots or the arrow keys
 - Apps stay on the page where you put them, and dragging to the end of the last page starts a new one
 - Prefer one long grid? Switch layouts in the view options menu next to search
@@ -22,7 +22,7 @@ Wafflepad is a modern, customizable app launcher built with Tauri, React and Typ
 - Seamless drag handoff from folder modal to main grid
 - Drag an app onto the Dock to pin it, like the original Launchpad
 - Progressive icon loading with disk caching
-- Keyboard navigation: Arrow keys move the selection, Enter launches, Ctrl+Cmd+N folders a multi-selection, Escape peels back renames, search, drags, folders and selections before closing
+- Keyboard navigation: Arrow keys move the cursor, Enter launches, Ctrl+Cmd+N folders a multi-selection, Escape peels back renames, search, drags, folders and selections before closing
 - Click outside or press Escape to dismiss; either releases a selection first
 
 ## Requirements
