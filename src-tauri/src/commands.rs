@@ -101,18 +101,23 @@ pub(crate) fn update_order(
 /// Generate icon for a single app (called from frontend for progressive loading)
 #[tauri::command]
 pub(crate) async fn get_app_icon(path: String) -> Option<String> {
-    let path_buf = PathBuf::from(&path);
-    if !path_buf.is_absolute() || path_buf.extension().is_none_or(|ext| ext != "app") {
-        return None;
-    }
+    // Same gate as every other per-app command (launch, reveal, menus)
+    validated_app_path(&path).ok()?;
 
     // Check cache first
     if let Some(cached) = get_icon_if_cached(&path) {
         return Some(cached);
     }
-    // Generate if not cached
+    // Generate if not cached. Rendering is CPU work plus a cache write:
+    // the blocking pool keeps a cold-cache burst of renders from
+    // occupying the IPC workers other commands run on.
     #[cfg(target_os = "macos")]
-    return crate::icon_cache::generate_and_cache_icon(&path);
+    return tauri::async_runtime::spawn_blocking(move || {
+        crate::icon_cache::generate_and_cache_icon(&path)
+    })
+    .await
+    .ok()
+    .flatten();
     #[cfg(not(target_os = "macos"))]
     None
 }

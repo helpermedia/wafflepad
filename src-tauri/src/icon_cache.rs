@@ -42,45 +42,106 @@ fn save_icon_to_cache(app_path: &str, png_bytes: &[u8]) -> Option<PathBuf> {
     Some(icon_file)
 }
 
-/// Get icon using NSWorkspace via Swift (handles all icon types on macOS)
+/// Canvas of the cached PNGs in pixels: the 128pt Launchpad-size icon
+/// at 2x, blitted from the icon's own 256px representation, so the
+/// canvas keeps the 24px squircle margin of Apple's 256px icon rasters.
+/// AppItem's highlight geometry is measured against exactly that (256px
+/// canvas, 24px margin), which is why the bitmap is pinned to this size
+/// instead of letting AppKit pick a representation for the main
+/// screen's backing scale, as the old `swift -e` renderer did — 256px
+/// only on Retina.
+#[cfg(target_os = "macos")]
+const ICON_CANVAS_PX: usize = 256;
+
+/// Render an app's icon to PNG bytes in-process: NSWorkspace's icon for
+/// the bundle, blitted into an offscreen Display P3 bitmap. Replaces a
+/// per-icon `swift -e` subprocess, which paid interpreter startup per
+/// icon and on a Mac without the Xcode command line tools popped their
+/// install dialog instead of rendering (/usr/bin/swift is a stub there).
+///
+/// Renders may run concurrently (one blocking task per uncached app on a
+/// cold start): iconForFile hands each call its own NSImage — dock_drag
+/// calls it with no coordination either — and each render draws into a
+/// context of its own, current only on its thread (the current context
+/// is thread-local state).
 #[cfg(target_os = "macos")]
 fn get_icon_nsworkspace_bytes(app_path: &str) -> Option<Vec<u8>> {
-    use base64::Engine;
-    use std::process::Command;
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSCompositingOperation, NSGraphicsContext,
+        NSWorkspace,
+    };
+    use objc2_core_graphics::{
+        kCGColorSpaceDisplayP3, CGBitmapContextCreate, CGBitmapContextCreateImage, CGColorSpace,
+        CGImageAlphaInfo,
+    };
+    use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
 
-    let swift_code = r#"
-import Cocoa
-import Foundation
+    // Resolve symlinks first: system apps like Safari are cryptex symlinks in
+    // /Applications, and iconForFile badges a symlink with the alias arrow
+    let resolved = fs::canonicalize(app_path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| app_path.to_string());
 
-guard CommandLine.arguments.count > 1 else { exit(1) }
-// Resolve symlinks first: system apps like Safari are cryptex symlinks in
-// /Applications, and iconForFile badges a symlink with the alias arrow
-let path = URL(fileURLWithPath: CommandLine.arguments[1]).resolvingSymlinksInPath().path
-let workspace = NSWorkspace.shared
-let icon = workspace.icon(forFile: path)
-icon.size = NSSize(width: 128, height: 128)
+    // Pool required: blocking-pool threads have no autorelease pool, so
+    // autoreleased AppKit objects would otherwise pin until thread exit
+    objc2::rc::autoreleasepool(|_| {
+        let icon = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(&resolved));
 
-let cgImage = icon.cgImage(forProposedRect: nil, context: nil, hints: nil)!
-let bitmap = NSBitmapImageRep(cgImage: cgImage)
-let pngData = bitmap.representation(using: .png, properties: [:])!
-print(pngData.base64EncodedString())
-"#;
+        let canvas = ICON_CANVAS_PX as f64;
+        unsafe {
+            // Display P3 backing: the icon representations arrive in
+            // extended sRGB and vivid icon art exceeds the sRGB gamut, so
+            // a narrower canvas would dull it. The PNG carries the profile.
+            let space = CGColorSpace::with_name(Some(kCGColorSpaceDisplayP3))?;
+            let cg_ctx = CGBitmapContextCreate(
+                std::ptr::null_mut(), // CG allocates the backing store
+                ICON_CANVAS_PX,
+                ICON_CANVAS_PX,
+                8,
+                0, // bytes per row: computed
+                Some(&space),
+                CGImageAlphaInfo::PremultipliedLast.0,
+            )?;
 
-    let output = Command::new("swift")
-        .arg("-e")
-        .arg(swift_code)
-        .arg(app_path)
-        .output()
-        .ok()?;
+            // The current context is thread-local state, cleared right
+            // after the draw.
+            let ctx = NSGraphicsContext::graphicsContextWithCGContext_flipped(&cg_ctx, false);
+            NSGraphicsContext::setCurrentContext(Some(&ctx));
+            let dest = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(canvas, canvas));
+            // Blit the icon's own 256px representation: an NSImage-level
+            // draw would match a representation against the destination
+            // with any Retina screen in play, land on the 512px 2x one
+            // and downscale, softening the squircle's edge one pixel into
+            // the margin the canvas constant promises. Fresh icons carry
+            // 256px representations throughout; anything without one gets
+            // the matched draw as a fallback.
+            let exact = icon.representations().iter().find(|rep| {
+                rep.pixelsWide() == ICON_CANVAS_PX as isize
+                    && rep.pixelsHigh() == ICON_CANVAS_PX as isize
+            });
+            // The canvas starts transparent, so the default source-over
+            // draw fills it with the icon alone either way
+            let drew = exact.is_some_and(|rep| rep.drawInRect(dest));
+            if !drew {
+                icon.drawInRect_fromRect_operation_fraction(
+                    dest,
+                    NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)), // whole source image
+                    NSCompositingOperation::SourceOver,
+                    1.0,
+                );
+            }
+            NSGraphicsContext::setCurrentContext(None);
 
-    if output.status.success() {
-        let b64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !b64.is_empty() {
-            return base64::engine::general_purpose::STANDARD.decode(&b64).ok();
+            let cg_image = CGBitmapContextCreateImage(Some(&cg_ctx))?;
+            let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg_image);
+            let png = rep.representationUsingType_properties(
+                NSBitmapImageFileType::PNG,
+                &NSDictionary::new(),
+            )?;
+            Some(png.to_vec())
         }
-    }
-
-    None
+    })
 }
 
 /// Get cached icon only (doesn't generate new icons)
